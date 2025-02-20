@@ -4,7 +4,7 @@ import cv2
 import numpy as np
 from skimage.filters import rank
 from skimage.filters import sobel
-from skimage.segmentation import watershed, felzenszwalb
+from skimage.segmentation import watershed
 from skimage.morphology import disk
 from tqdm import tqdm
 from scipy import ndimage as ndi
