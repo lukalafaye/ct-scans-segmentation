@@ -1,28 +1,3 @@
-"""
-BEFORE
-
-
-pip3 install -q torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu126
-pip install -q nnunetv2
-pip install -q triton
-
-# downloading the images
-
-wget -q https://challengedata.ens.fr/media/public/train-images.zip
-wget -q https://challengedata.ens.fr/media/public/test-images.zip
-wget -q https://challengedata.ens.fr/media/public/label_Hnl61pT.csv -O y_train.csv
-wget -q https://challengedata.ens.fr/media/public/annotated_labels.json
-
-# Unzip images
-
-unzip -q -n train-images.zip
-unzip -q -n test-images.zip
-
-AFER
-nnUNetv2_plan_and_preprocess -d 001 -pl nnUNetPlannerResEncM --verify_dataset_integrity
-nnUNet_compile=False nnUNetv2_train Dataset001_CTSCAN 2d 0 -p nnUNetResEncUNetMPlans --npz
-"""
-
 from skimage.segmentation import watershed, felzenszwalb
 from skimage.filters import sobel
 import pandas as pd
