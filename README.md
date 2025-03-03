@@ -1,7 +1,7 @@
 
 # Steps to train nnUnet
 
-Change working directory to `unet-scripts/`.
+Change working directory to `nnUNet/`.
 
 Requirements:
 - Python3
@@ -20,7 +20,14 @@ Requirements:
 
 Final output `predictions.csv` contains all predictions.
 
+
 # Steps to train Segformer
+
+Change working directory to `segformer/`.
+
+Requirements:
+- Python3
+- GPU
 
 1. Create and activate python3 env: `python3 -m venv venv && source venv/bin/activate`
 2. Prepare environment: `./prepare_env.sh`
