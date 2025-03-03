@@ -8,7 +8,7 @@ Requirements:
 - GPU
 
 1. Create and activate python3 env: `python3 -m venv venv && source venv/bin/activate`
-2. Prepare environment: `./prepare_env.sh`
+2. Prepare environment: `./prepare_env.sh` # MODIFY LINE UNDER: fetch exact torch command using pytorch install website
 3. Prepare data for nnUnet: `python3 prepare_data.py
 4. Make sure GPUs are available: `python3 list-gpus.py`
 5. Train UNet model: `./train_script.sh`, tip: Use screen sessions to run folds in parallel. Stop when you see on progress.png in each fold folder that the model stops learning.
@@ -30,7 +30,7 @@ Requirements:
 - GPU
 
 1. Create and activate python3 env: `python3 -m venv venv && source venv/bin/activate`
-2. Prepare environment: `./prepare_env.sh`
+2. Prepare environment: `./prepare_env.sh` # MODIFY LINE UNDER: fetch exact torch command using pytorch install website
 3. Make sure GPUs are available: `python3 list-gpus.py`
 4. Train segformer model: `python3 train.py`
 5. Generate test images: `python3 generate-test-images.py`
