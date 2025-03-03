@@ -1,1 +1,2 @@
 data/y_train.csv filter=lfs diff=lfs merge=lfs -text
+segformer/models/model.ckpt filter=lfs diff=lfs merge=lfs -text

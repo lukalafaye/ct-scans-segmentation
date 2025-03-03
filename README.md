@@ -19,3 +19,13 @@ Requirements:
 10. Generate submission: `python3 generate-submission.py`
 
 Final output `predictions.csv` contains all predictions.
+
+# Steps to train Segformer
+
+1. Create and activate python3 env: `python3 -m venv venv && source venv/bin/activate`
+2. Prepare environment: `./prepare_env.sh`
+3. Make sure GPUs are available: `python3 list-gpus.py`
+4. Train segformer model: `python3 train.py`
+5. Generate test images: `python3 generate-test-images.py`
+6. Show test images masks side to side: `show-test-images-masks.py`
+

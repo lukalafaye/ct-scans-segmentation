@@ -1,0 +1,13 @@
+torch
+pandas
+numpy
+opencv-python
+scipy
+matplotlib
+tqdm
+scikit-learn
+albumentations
+torchmetrics
+pytorch-lightning
+transformers
+pathlib
