@@ -27,12 +27,14 @@ random.seed(seed)
 np.random.seed(seed)
 
 TRAIN = True
-N_EPOCHS = 5000
+N_EPOCHS = 500
 BATCH_SIZE = 4
 MODEL_NAME = "nvidia/mit-b4"
 
 # Load the train labels; note the transpose!
 train_df = pd.read_csv("y_train.csv", index_col=0).T
+#train_df = train_df.iloc[:50]
+
 print(train_df.shape)
 MAX_ITEMS = 55
 mask = ~(train_df.values == 0).all(axis=-1)
@@ -43,7 +45,20 @@ print("Train data shape:", train_df.shape)
 transform = A.Compose([
     A.HorizontalFlip(p=0.5),
     A.VerticalFlip(p=0.5),
-    A.RandomBrightnessContrast(p=0.2)
+    # Slight random rotations (±10°) with reflection to avoid black borders
+    A.ShiftScaleRotate(
+        shift_limit=0.0625,  # shift up to ~6%
+        scale_limit=0.1,     # scale changes of 10%
+        rotate_limit=10,     # rotation up to 10 degrees
+        border_mode=cv2.BORDER_REFLECT_101, 
+        p=0.5
+    ),
+    # Elastic deformation can simulate soft tissue distortions, but use it moderately.
+    A.ElasticTransform(alpha=1, sigma=50, alpha_affine=50, p=0.3),
+    # Add Gaussian noise to simulate acquisition noise.
+    A.GaussNoise(var_limit=(10.0, 50.0), p=0.3),
+    # Adjust brightness and contrast moderately.
+    A.RandomBrightnessContrast(brightness_limit=0.2, contrast_limit=0.2, p=0.5)
 ])
 
 # Dataset definition
@@ -121,7 +136,8 @@ val_dataset = MyDataset(val_df_split)
 train_loader = DataLoader(
     dataset=train_dataset,
     batch_size=BATCH_SIZE,
-    num_workers=4,
+    num_workers=os.cpu_count()-4,
+    pin_memory=True,
     shuffle=True
 )
 
@@ -129,6 +145,7 @@ val_loader = DataLoader(
     dataset=val_dataset,
     batch_size=BATCH_SIZE,
     num_workers=4,
+    pin_memory=True,
     shuffle=False  # typically no shuffling for validation
 )
 
@@ -271,7 +288,7 @@ TRAIN = True
 
 if TRAIN:
     model = MyModel()
-
+    """
     checkpoint_callback = pl.callbacks.ModelCheckpoint(
         dirpath="models/",
         filename="model",
@@ -282,6 +299,19 @@ if TRAIN:
         save_weights_only=True,
         verbose=True
     )
+    """
+
+    checkpoint_callback = pl.callbacks.ModelCheckpoint(
+        dirpath="models/",
+        filename="best_model",
+        save_top_k=1,
+        monitor="val_loss",
+        mode="min",
+        every_n_epochs=5,  # check and save every 5 epochs
+        save_weights_only=True,
+        verbose=True
+    )
+
     stopping_callback = EarlyStopping(monitor="train_loss", mode="min", patience=1000)
     accelerator = "gpu" if torch.cuda.is_available() else "cpu"
 
