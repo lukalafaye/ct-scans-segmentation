@@ -29,9 +29,10 @@ TRAIN = True
 N_EPOCHS = 500
 BATCH_SIZE = 4
 MODEL_NAME = "nvidia/mit-b4"
+DATA_FOLDER = "../data" # no /
 
 # Load the train labels; note the transpose!
-train_df = pd.read_csv("y_train.csv", index_col=0).T
+train_df = pd.read_csv(f"{DATA_FOLDER}/y_train.csv", index_col=0).T
 print(train_df.shape)
 MAX_ITEMS = 55
 mask = ~(train_df.values == 0).all(axis=-1)
@@ -50,10 +51,6 @@ transform = A.Compose([
         border_mode=cv2.BORDER_REFLECT_101, 
         p=0.5
     ),
-    # Elastic deformation can simulate soft tissue distortions, but use it moderately.
-    A.ElasticTransform(alpha=1, sigma=50, alpha_affine=50, p=0.3),
-    # Add Gaussian noise to simulate acquisition noise.
-    A.GaussNoise(var_limit=(10.0, 50.0), p=0.3),
     # Adjust brightness and contrast moderately.
     A.RandomBrightnessContrast(brightness_limit=0.2, contrast_limit=0.2, p=0.5)
 ])
@@ -66,7 +63,7 @@ class MyDataset():
         # No additional initialization needed
 
     def __getitem__(self, i):
-        path = f"train-images/{self.paths[i]}"
+        path = f"{DATA_FOLDER}/train-images/{self.paths[i]}"
         x = cv2.imread(path, cv2.IMREAD_GRAYSCALE)  # (256, 256)
         y = self.targets[i].reshape(256, 256)         # (256, 256)
         # Apply augmentation
@@ -206,9 +203,109 @@ class MyLightningModule(pl.LightningModule):
         )
         return {"optimizer": self.optimizer, "lr_scheduler": self.reduce_lr_on_plateau, "monitor": "train_loss"}
 
+
+def apply_colormap(mask):
+    """
+    Convert a single-channel mask to a color image using a colormap.
+    Assumes mask values in 0-54.
+    """
+    # Convert mask to uint8 if not already
+    mask_uint8 = np.uint8(mask)
+    colored = cv2.applyColorMap(mask_uint8 * (255 // MAX_ITEMS), cv2.COLORMAP_JET)
+    return colored
+
+def overlay_mask_on_image(image, mask, alpha=0.5):
+    """
+    Overlay a colored mask on the original grayscale image.
+    `image`: grayscale image of shape (H, W)
+    `mask`: colored mask of shape (H, W, 3)
+    """
+    # Convert grayscale image to BGR
+    image_bgr = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
+    overlay = cv2.addWeighted(image_bgr, 1 - alpha, mask, alpha, 0)
+    return overlay
+
+class ValidationVisualizationCallback(pl.Callback):
+    def __init__(self, val_dataloader, output_dir="generated_dice_ce"):
+        super().__init__()
+        self.val_dataloader = val_dataloader
+        self.output_dir = output_dir
+        os.makedirs(self.output_dir, exist_ok=True)
+    
+    def on_validation_epoch_end(self, trainer, pl_module):
+        # Run visualization every 5 epochs
+        epoch = trainer.current_epoch
+        if epoch % 5 != 0:
+            return
+        epoch_dir = os.path.join(self.output_dir, f"epoch_{epoch}")
+        os.makedirs(epoch_dir, exist_ok=True)
+        
+        pl_module.eval()
+        device = pl_module.device
+        
+        for batch_idx, batch in enumerate(self.val_dataloader):
+            x, y = batch
+            x = x.to(device)
+            with torch.no_grad():
+                logits = pl_module(x)
+                preds = torch.argmax(logits, dim=1).cpu().numpy()  # (B, 256, 256)
+            gt = np.argmax(y, axis=1)  # (B, 256, 256)
+            
+            for i in range(x.shape[0]):
+                orig = x[i, 0].cpu().numpy().astype(np.uint8)
+                gt_mask = gt[i]
+                pred_mask = preds[i]
+                
+                gt_color = apply_colormap(gt_mask)
+                pred_color = apply_colormap(pred_mask)
+                gt_overlay = overlay_mask_on_image(orig, gt_color, alpha=0.5)
+                pred_overlay = overlay_mask_on_image(orig, pred_color, alpha=0.5)
+                
+                # Prepare text labels (only one each, with sorted unique labels)
+                gt_labels = np.unique(gt_mask)
+                pred_labels = np.unique(pred_mask)
+                gt_text = "GT: " + ", ".join(map(str, sorted(gt_labels)))
+                pred_text = "Pred: " + ", ".join(map(str, sorted(pred_labels)))
+                
+                # Convert original image to BGR for consistency
+                orig_bgr = cv2.cvtColor(orig, cv2.COLOR_GRAY2BGR)
+                
+                # Combine images horizontally: original, GT overlay, prediction overlay
+                combined_top = cv2.hconcat([orig_bgr, gt_overlay, pred_overlay])
+                
+                # Define a small text area height
+                text_height = 30
+                col_width = orig_bgr.shape[1]
+                blank_text = np.full((text_height, col_width, 3), 255, dtype=np.uint8)
+                
+                # Create text areas for GT and Prediction (using a small font)
+                gt_text_img = blank_text.copy()
+                pred_text_img = blank_text.copy()
+                font_scale = 0.4  # very small text
+                thickness = 1
+                # Position text near bottom-left of the text area
+                cv2.putText(gt_text_img, gt_text, (5, text_height - 5), 
+                            cv2.FONT_HERSHEY_SIMPLEX, font_scale, (0, 0, 0), thickness, cv2.LINE_AA)
+                cv2.putText(pred_text_img, pred_text, (5, text_height - 5), 
+                            cv2.FONT_HERSHEY_SIMPLEX, font_scale, (0, 0, 0), thickness, cv2.LINE_AA)
+                
+                # The first column (original) remains blank in the text row
+                text_row = cv2.hconcat([blank_text, gt_text_img, pred_text_img])
+                
+                final_vis = cv2.vconcat([combined_top, text_row])
+                
+                save_path = os.path.join(epoch_dir, f"val_{batch_idx}_{i}.png")
+                cv2.imwrite(save_path, final_vis)
+        
+        pl_module.train()  # switch back to train mode
+
+
+# Now, when you create your Trainer, add this callback:
+viz_callback = ValidationVisualizationCallback(val_dataloader=val_loader, output_dir="generated_dice")
+
 # Set up TensorBoard logger for online logging
 from pytorch_lightning.loggers import TensorBoardLogger
-logger = TensorBoardLogger("tb_logs", name="segform-no-shuffle")
+logger = TensorBoardLogger("tb_logs", name="segformer-dice")
 
 # Device selection
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -238,7 +335,7 @@ if TRAIN:
         devices=[0],
         accumulate_grad_batches=1,
         num_sanity_val_steps=0,
-        callbacks=[checkpoint_callback, stopping_callback],
+        callbacks=[checkpoint_callback, stopping_callback, viz_callback],
         logger=logger
     )
     trainer.fit(model, train_dataloaders=train_loader, val_dataloaders=val_loader)
