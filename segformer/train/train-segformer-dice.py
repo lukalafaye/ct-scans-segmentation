@@ -19,7 +19,6 @@ import pytorch_lightning as pl
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping
 from scipy.spatial.distance import cdist
 
-
 # Set random seed for reproducibility
 seed = 12458
 torch.manual_seed(seed)
@@ -33,8 +32,6 @@ MODEL_NAME = "nvidia/mit-b4"
 
 # Load the train labels; note the transpose!
 train_df = pd.read_csv("y_train.csv", index_col=0).T
-#train_df = train_df.iloc[:50]
-
 print(train_df.shape)
 MAX_ITEMS = 55
 mask = ~(train_df.values == 0).all(axis=-1)
@@ -80,49 +77,31 @@ class MyDataset():
         return x[np.newaxis], self.one_hot(y)
     
     def one_hot(self, y):
-        # Create one-hot masks for each unique label
-        y = [y == x for x in np.unique(y)]
-        # Separate background (first channel) and foreground channels
-        y_ = y[1:]
-        # Shuffle the foreground channels to avoid fixed ordering
-        random.shuffle(y_)
-        y = np.stack(y[:1] + y_)
-        # Pad to MAX_ITEMS channels if necessary
-        y = np.pad(y, [(0, MAX_ITEMS - y.shape[0]), (0, 0), (0, 0)])
-        return y.astype(np.float32)
+        # Ensure y is 2D (remove extra dimensions if any)
+        y = np.squeeze(y)
+        H, W = y.shape
+        one_hot_mask = np.zeros((MAX_ITEMS, H, W), dtype=np.float32)
+        for c in range(MAX_ITEMS):
+            one_hot_mask[c] = (y == c).astype(np.float32)
+        return one_hot_mask
     
     def __len__(self):
         return len(self.paths)
 
 from iterstrat.ml_stratifiers import MultilabelStratifiedKFold
 
-# Suppose train_df is your DataFrame containing image names as index and 
-# the segmentation labels as values (flattened or not) as read from your CSV.
-# We'll create a multi-label indicator matrix where each row corresponds 
-# to an image and each column corresponds to one of the 55 classes.
-
 # For each image, compute a binary vector indicating presence/absence of each class.
 def compute_label_vector(row, max_items=55):
-    # Get the unique labels present in the row (assumes background is 0)
     labels = np.unique(row.values)
-    # Create a binary vector of length max_items
     vec = np.zeros(max_items, dtype=int)
-    # For each label (assuming labels are in [0, max_items-1]),
-    # mark as present (if label > 0, e.g., skipping background if desired)
     for lbl in labels:
-        # Optionally skip background (if background is 0 and you don't want to stratify on it)
         if lbl != 0:
             vec[int(lbl)] = 1
     return vec
 
-# Compute the multi-label indicator for each image
 multi_labels = np.stack([compute_label_vector(train_df.loc[name]) for name in train_df.index])
-
-# Now use MultilabelStratifiedKFold to create a split.
 mskf = MultilabelStratifiedKFold(n_splits=5, shuffle=True, random_state=seed)
 train_indices, val_indices = next(mskf.split(np.zeros(len(train_df)), multi_labels))
-
-# Create separate DataFrames for train and validation.
 train_df_split = train_df.iloc[train_indices]
 val_df_split = train_df.iloc[val_indices]
 
@@ -146,122 +125,72 @@ val_loader = DataLoader(
     batch_size=BATCH_SIZE,
     num_workers=4,
     pin_memory=True,
-    shuffle=False  # typically no shuffling for validation
+    shuffle=False
 )
 
 print("Train split contains: ", len(train_df_split.stack().unique()), " - Val split contains: ", len(val_df_split.stack().unique()))
 
-# Dice Loss definition
+# Average Dice Loss definition computed per channel (no matching, fixed channel order)
 class DiceLoss(torch.nn.Module):
-    def __init__(self,):
+    def __init__(self, smooth=1e-10):
         super(DiceLoss, self).__init__()
+        self.smooth = smooth
 
-    def forward(self, inputs, targets, smooth=1e-10):
-        # Flatten tensors: both become vectors of shape (B * MAX_ITEMS * 256*256,)
-        inputs, targets = inputs.contiguous().view(-1), targets.contiguous().view(-1)
-        intersection = (inputs * targets).sum()
-        dice = (2. * intersection + smooth) / (inputs.sum() + targets.sum() + smooth)
-        return 1 - dice  # scalar
-
-# Matching Loss definition modified to return a tuple (ce_loss, dice_loss)
-class MatchingLoss(torch.nn.Module):
-    def __init__(self,):
-        super(MatchingLoss, self).__init__()
-        # Cross entropy function expects raw logits (it applies softmax internally)
-        self.loss_fn1 = torch.nn.functional.cross_entropy
-        self.loss_fn2 = DiceLoss()
-    
     def forward(self, inputs, targets):
-        # inputs: (B, MAX_ITEMS, 256, 256) logits; targets: (B, MAX_ITEMS, 256, 256) one-hot masks
-        # Reshape to flatten spatial dimensions: (B, MAX_ITEMS, 256*256)
-        inputs = inputs.view(*inputs.size()[:2], -1)
-        targets = targets.view(*targets.size()[:2], -1)
+        # inputs and targets are assumed to be of shape (B, MAX_ITEMS, 256, 256)
+        B, C, H, W = inputs.shape
+        inputs = inputs.view(B, C, -1)    # shape: (B, C, 256*256)
+        targets = targets.view(B, C, -1)    # shape: (B, C, 256*256)
+        intersection = (inputs * targets).sum(dim=2)
+        union = inputs.sum(dim=2) + targets.sum(dim=2)
+        dice = (2. * intersection + self.smooth) / (union + self.smooth)
+        loss = 1 - dice.mean()  # average over all channels and batch
+        return loss
 
-        # Remove the background channel (index 0)
-        bg_inputs, bg_targets = inputs[:, :1], targets[:, :1]  # (B, 1, 256*256)
-        inputs, targets = inputs[:, 1:], targets[:, 1:]           # (B, MAX_ITEMS-1, 256*256)
-
-        # Compute best matching loss between foreground channels using L1 cost
-        costs = torch.cdist(inputs, targets, p=1).detach().cpu().numpy()  # (B, MAX_ITEMS-1, MAX_ITEMS-1)
-        inputs_arr, targets_arr = [], []
-        for i in range(len(costs)):  # loop over batch (B)
-            inputs_, targets_ = inputs[i], targets[i]  # each: (MAX_ITEMS-1, 256*256)
-            l, k = linear_sum_assignment(costs[i])  # optimal matching indices for foreground channels
-            inputs_arr.append(inputs_[l])   # reorder channels: (MAX_ITEMS-1, 256*256)
-            targets_arr.append(targets_[k])  # reorder channels: (MAX_ITEMS-1, 256*256)
-        inputs = torch.stack(inputs_arr)    # (B, MAX_ITEMS-1, 256*256)
-        targets = torch.stack(targets_arr)   # (B, MAX_ITEMS-1, 256*256)
-
-        # Add background channel back
-        inputs = torch.cat([bg_inputs, inputs], 1)   # Final shape: (B, MAX_ITEMS, 256*256)
-        targets = torch.cat([bg_targets, targets], 1)  # Final shape: (B, MAX_ITEMS, 256*256)
-
-        # For cross entropy, convert one-hot targets to indices (each pixel: integer in [0, MAX_ITEMS-1])
-        target_indices = torch.argmax(targets, dim=1)  # shape: (B, 256*256)
-
-        ce_loss = self.loss_fn1(inputs, target_indices)
-        dice_loss = self.loss_fn2(torch.softmax(inputs, dim=1), targets)
-        return ce_loss, dice_loss
-
-# LightningModule definition with TensorBoard logging and epoch-level logging using the loss_fn outputs.
-class MyModel(pl.LightningModule):
+# LightningModule definition (using only average Dice loss on all channels, fixed ordering)
+class MyLightningModule(pl.LightningModule):
     def __init__(self, in_channels=1):
         super().__init__()
-
-        # Load the config of the pretrained nvidia/mit-b* model
         config = SegformerConfig.from_pretrained(MODEL_NAME)
-        config.num_channels = in_channels  # 1 for grayscale
+        config.num_channels = in_channels
         config.id2label = {i: i for i in range(MAX_ITEMS)}
         config.label2id = {i: i for i in range(MAX_ITEMS)}
         self.config = config
-        # Create a randomly initialized model from the config
         self.backbone = SegformerForSemanticSegmentation(config)
-        
-        self.loss_fn = MatchingLoss()
+        self.loss_fn = DiceLoss()
         self.mean_tracker = MeanMetric()
 
     def forward(self, img):
         # img shape: (B, 1, 256, 256)
         img = img / 255
-        out = self.backbone(pixel_values=img)[0]  # (B, MAX_ITEMS, 64, 64) downsampled (example)
-        out = torch.nn.functional.interpolate(out, mode='bilinear', scale_factor=4)  # upsample to (B, MAX_ITEMS, 256, 256)
+        out = self.backbone(pixel_values=img)[0]  # (B, MAX_ITEMS, 64, 64)
+        out = torch.nn.functional.interpolate(out, mode='bilinear', scale_factor=4)  # (B, MAX_ITEMS, 256, 256)
         return out
 
     def training_step(self, batch, batch_idx):
         x, y = batch  # x: (B, 1, 256, 256); y: (B, MAX_ITEMS, 256, 256)
-        y_hat = self(x)  # y_hat: (B, MAX_ITEMS, 256, 256)
-        ce_loss, dice_loss = self.loss_fn(y_hat, y)  # each is a scalar loss
-        loss = ce_loss + dice_loss
-        
-        # Compute dice score from dice_loss
+        y_hat = self(x)  # (B, MAX_ITEMS, 256, 256)
+        dice_loss = self.loss_fn(torch.softmax(y_hat, dim=1), y)
+        loss = dice_loss
         dice_score = 1 - dice_loss
-        
-        # Log metrics (on_epoch=True aggregates over the epoch)
         self.log("train_loss", loss, prog_bar=True, on_epoch=True)
-        self.log("train_ce_loss", ce_loss, prog_bar=True, on_epoch=True)
         self.log("train_dice_score", dice_score, prog_bar=True, on_epoch=True)
         return loss
 
     def validation_step(self, batch, batch_idx):
         x, y = batch
         y_hat = self(x)
-        ce_loss, dice_loss = self.loss_fn(y_hat, y)
-        loss = ce_loss + dice_loss
-        
-        # Compute dice score from dice_loss
+        dice_loss = self.loss_fn(torch.softmax(y_hat, dim=1), y)
+        loss = dice_loss
         dice_score = 1 - dice_loss
-        
         self.log("val_loss", loss, prog_bar=True, on_epoch=True)
-        self.log("val_ce_loss", ce_loss, prog_bar=True, on_epoch=True)
         self.log("val_dice_score", dice_score, prog_bar=True, on_epoch=True)
-        return {"val_loss": loss, "val_ce_loss": ce_loss, "val_dice_score": dice_score}
+        return {"val_loss": loss, "val_dice_score": dice_score}
 
     def on_train_epoch_end(self):
-        # Reset the mean tracker at the end of each epoch
         self.mean_tracker.reset()
 
     def on_validation_epoch_end(self):
-        # No extra aggregation is required here since we log on_epoch in each step.
         pass
 
     def configure_optimizers(self):
@@ -279,7 +208,7 @@ class MyModel(pl.LightningModule):
 
 # Set up TensorBoard logger for online logging
 from pytorch_lightning.loggers import TensorBoardLogger
-logger = TensorBoardLogger("tb_logs", name="segform")
+logger = TensorBoardLogger("tb_logs", name="segform-no-shuffle")
 
 # Device selection
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -287,27 +216,15 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 TRAIN = True
 
 if TRAIN:
-    model = MyModel()
-    """
-    checkpoint_callback = pl.callbacks.ModelCheckpoint(
-        dirpath="models/",
-        filename="model",
-        save_top_k=1,
-        monitor="train_loss",
-        mode="min",
-        every_n_epochs=1,
-        save_weights_only=True,
-        verbose=True
-    )
-    """
+    model = MyLightningModule()
 
     checkpoint_callback = pl.callbacks.ModelCheckpoint(
         dirpath="models/",
-        filename="best_model",
+        filename="best_model_no_shuffle",
         save_top_k=1,
         monitor="val_loss",
         mode="min",
-        every_n_epochs=5,  # check and save every 5 epochs
+        every_n_epochs=5,
         save_weights_only=True,
         verbose=True
     )
@@ -324,7 +241,4 @@ if TRAIN:
         callbacks=[checkpoint_callback, stopping_callback],
         logger=logger
     )
-    # Provide both train and validation dataloaders
     trainer.fit(model, train_dataloaders=train_loader, val_dataloaders=val_loader)
-
-
