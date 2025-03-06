@@ -17,3 +17,6 @@ unzip -n train-images.zip
 unzip -n test-images.zip
 
 rm -rf *.zip
+
+mkdir -p data
+mv y_train.csv annotated_labels.json train-images test-images data/
