@@ -239,6 +239,109 @@ val_loader = DataLoader(
 print("Train split contains: ", len(train_df_split.stack().unique()), 
       " - Val split contains: ", len(val_df_split.stack().unique()))
 
+
+
+
+def apply_colormap(mask):
+    """
+    Convert a single-channel mask to a color image using a colormap.
+    Assumes mask values in 0-54.
+    """
+    # Convert mask to uint8 if not already
+    mask_uint8 = np.uint8(mask)
+    colored = cv2.applyColorMap(mask_uint8 * (255 // MAX_ITEMS), cv2.COLORMAP_JET)
+    return colored
+
+def overlay_mask_on_image(image, mask, alpha=0.5):
+    """
+    Overlay a colored mask on the original grayscale image.
+    `image`: grayscale image of shape (H, W)
+    `mask`: colored mask of shape (H, W, 3)
+    """
+    # Convert grayscale image to BGR
+    image_bgr = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
+    overlay = cv2.addWeighted(image_bgr, 1 - alpha, mask, alpha, 0)
+    return overlay
+
+class ValidationVisualizationCallback(pl.Callback):
+    def __init__(self, val_dataloader, output_dir="generated_dice_ce"):
+        super().__init__()
+        self.val_dataloader = val_dataloader
+        self.output_dir = output_dir
+        os.makedirs(self.output_dir, exist_ok=True)
+    
+    def on_validation_epoch_end(self, trainer, pl_module):
+        # Get the current epoch
+        epoch = trainer.current_epoch
+        if epoch % 5 != 0:
+            return
+        # Create folder for this epoch
+        epoch_dir = os.path.join(self.output_dir, f"epoch_{epoch}")
+        os.makedirs(epoch_dir, exist_ok=True)
+        
+        pl_module.eval()
+        device = pl_module.device
+        
+        # Loop over the validation dataloader (optionally, you may restrict to a subset)
+        for batch_idx, batch in enumerate(self.val_dataloader):
+            # Batch returns (x, y); x shape: (B, 1, 256, 256); y: (B, MAX_ITEMS, 256,256)
+            x, y = batch
+            x = x.to(device)
+            with torch.no_grad():
+                # Run inference
+                logits = pl_module(x)  # shape: (B, MAX_ITEMS, 256,256)
+                preds = torch.argmax(logits, dim=1).cpu().numpy()  # shape: (B, 256,256)
+            # Convert ground truth from one-hot to label indices
+            gt = np.argmax(y, axis=1)  # shape: (B, 256,256)
+            # Process each sample in the batch individually
+            for i in range(x.shape[0]):
+                # Get original image (convert from tensor to numpy)
+                orig = x[i, 0].cpu().numpy().astype(np.uint8)
+                gt_mask = gt[i]  # shape: (256,256)
+                pred_mask = preds[i]  # shape: (256,256)
+                
+                # Apply color maps
+                gt_color = apply_colormap(gt_mask)
+                pred_color = apply_colormap(pred_mask)
+                
+                # Overlay masks on original image
+                gt_overlay = overlay_mask_on_image(orig, gt_color, alpha=0.5)
+                pred_overlay = overlay_mask_on_image(orig, pred_color, alpha=0.5)
+                
+                # Get unique labels as sorted lists for ground truth and predictions
+                gt_labels = np.unique(gt_mask)
+                pred_labels = np.unique(pred_mask)
+                gt_text = "GT: " + ", ".join(map(str, sorted(gt_labels)))
+                pred_text = "Pred: " + ", ".join(map(str, sorted(pred_labels)))
+                
+                # Create a blank area for text
+                H, W = orig.shape
+                text_area = np.full((50, W, 3), 255, dtype=np.uint8)
+                # Add text using cv2.putText
+                cv2.putText(text_area, gt_text, (10, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0,0,0), 2)
+                cv2.putText(text_area, pred_text, (10, 45), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0,0,0), 2)
+                
+                # Combine images horizontally: original, gt overlay, pred overlay
+                orig_bgr = cv2.cvtColor(orig, cv2.COLOR_GRAY2BGR)
+                combined_top = cv2.hconcat([orig_bgr, gt_overlay, pred_overlay])
+                # Add text area below the gt and pred images only (assuming same width for gt and pred)
+                # Create a blank image for original text (optional)
+                blank = np.full((50, orig_bgr.shape[1], 3), 255, dtype=np.uint8)
+                combined_text = cv2.hconcat([blank, text_area, text_area])
+                
+                # Finally, combine top and text area vertically
+                final_vis = cv2.vconcat([combined_top, combined_text])
+                
+                # Save the visualization with a unique filename
+                save_path = os.path.join(epoch_dir, f"val_{batch_idx}_{i}.png")
+                cv2.imwrite(save_path, final_vis)
+        
+        pl_module.train()  # set model back to train mode
+
+# Now, when you create your Trainer, add this callback:
+viz_callback = ValidationVisualizationCallback(val_dataloader=val_loader, output_dir="generated_dice_ce")
+
+
 # Main training execution
 if TRAIN:
     model = MyLightningModule()
@@ -259,7 +362,7 @@ if TRAIN:
         devices=[0],
         accumulate_grad_batches=1,
         num_sanity_val_steps=0,
-        callbacks=[checkpoint_callback, stopping_callback],
+        callbacks=[checkpoint_callback, stopping_callback, viz_callback],
         logger=logger
     )
     trainer.fit(model, train_dataloaders=train_loader, val_dataloaders=val_loader)
