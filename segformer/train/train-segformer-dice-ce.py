@@ -107,22 +107,6 @@ print("Validation split shape:", val_df_split.shape)
 train_dataset = MyDataset(train_df_split)
 val_dataset = MyDataset(val_df_split)
 
-train_loader = DataLoader(
-    dataset=train_dataset,
-    batch_size=BATCH_SIZE,
-    num_workers=os.cpu_count()-4,
-    pin_memory=True,
-    shuffle=True
-)
-
-val_loader = DataLoader(
-    dataset=val_dataset,
-    batch_size=BATCH_SIZE,
-    num_workers=4,
-    pin_memory=True,
-    shuffle=False
-)
-
 print("Train split contains: ", len(train_df_split.stack().unique()),
       " - Val split contains: ", len(val_df_split.stack().unique()))
 
@@ -141,18 +125,19 @@ class CombinedLoss(torch.nn.Module):
         # Cross Entropy: convert one-hot targets to indices
         target_indices = torch.argmax(targets, dim=1)  # shape: (B, 256,256)
         ce = self.ce_loss(inputs, target_indices)
-        
-        # Dice Loss: compute per channel dice loss and average
-        pred_probs = torch.softmax(inputs, dim=1)  # shape: (B, MAX_ITEMS, 256,256)
-        # Flatten spatial dimensions for dice computation
-        pred_probs = pred_probs.view(B, C, -1)
-        targets_flat = targets.view(B, C, -1)
-        intersection = (pred_probs * targets_flat).sum(dim=2)
-        union = pred_probs.sum(dim=2) + targets_flat.sum(dim=2)
+
+        inputs = inputs[:, 1:, :, :]
+        targets = targets[:, 1:, :, :]
+
+        B, C, H, W = inputs.shape
+        inputs = inputs.view(B, C, -1)   # shape: (B, C, H*W)
+        targets = targets.view(B, C, -1)
+        intersection = (inputs * targets).sum(dim=2)
+        union = inputs.sum(dim=2) + targets.sum(dim=2)
         dice = (2. * intersection + self.smooth) / (union + self.smooth)
         dice_loss = 1 - dice.mean()  # average over channels and batch
         
-        return ce, dice_loss, ce + dice_loss
+        return ce, dice_loss, 0.1*ce + 0.9*dice_loss
 
 # LightningModule definition using the CombinedLoss
 class MyLightningModule(pl.LightningModule):
@@ -252,7 +237,7 @@ if TRAIN:
         save_weights_only=True,
         verbose=True
     )
-    stopping_callback = EarlyStopping(monitor="train_loss", mode="min", patience=1000)
+    stopping_callback = EarlyStopping(monitor="val_loss", mode="min", patience=50)
     trainer = pl.Trainer(
         max_epochs=N_EPOCHS,
         accelerator="gpu",

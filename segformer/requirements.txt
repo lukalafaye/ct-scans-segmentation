@@ -11,3 +11,5 @@ torchmetrics
 pytorch-lightning
 transformers
 pathlib
+iterative-stratification==0.1.9
+tensorboard
