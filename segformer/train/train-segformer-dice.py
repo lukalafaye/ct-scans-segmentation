@@ -233,7 +233,7 @@ if TRAIN:
         verbose=True
     )
 
-    stopping_callback = EarlyStopping(monitor="train_loss", mode="min", patience=1000)
+    stopping_callback = EarlyStopping(monitor="val_loss", mode="min", patience=50)
     accelerator = "gpu" if torch.cuda.is_available() else "cpu"
 
     trainer = pl.Trainer(
