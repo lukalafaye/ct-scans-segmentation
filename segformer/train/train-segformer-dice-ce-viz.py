@@ -202,9 +202,6 @@ logger = TensorBoardLogger("tb_logs", name="segformer-dice-ce")
 # Device selection and DataLoader creation
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-train_dataset = MyDataset(train_df_split)
-val_dataset = MyDataset(val_df_split)
-
 train_loader = DataLoader(
     dataset=train_dataset,
     batch_size=BATCH_SIZE,

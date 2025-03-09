@@ -32,7 +32,6 @@ Requirements:
 1. Create and activate python3 env: `python3 -m venv venv && source venv/bin/activate`
 2. Prepare environment: `./prepare_env.sh` # MODIFY LINE UNDER: fetch exact torch command using pytorch install website
 3. Make sure GPUs are available: `python3 list-gpus.py`
-4. Train segformer model: `python3 train.py`
-5. Generate test images: `python3 generate-test-images.py`
-6. Show test images masks side to side: `show-test-images-masks.py`
+4. In `train/` folder, you can train the segformer model: `python3 train-segformer-dice-viz.py` or `train-segformer-dice-ce-viz.py` (for dice loss only or mix of dice + cross entropy)
+5. In `inference/` folder, you can run trained models: `python3 inference-segformer.py`, generate some images with their originals: `python3 visualize_side_to_side.py` and verify the generated test submission.csv : `python3 verify.py`
 
