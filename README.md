@@ -9,7 +9,7 @@ Requirements:
 
 1. Create and activate python3 env: `python3 -m venv venv && source venv/bin/activate`
 2. Prepare environment: `./prepare_env.sh` # MODIFY LINE UNDER: fetch exact torch command using pytorch install website
-3. Prepare data for nnUnet: `python3 prepare_data.py
+3. Prepare data for nnUnet: `python3 prepare_data.py`
 4. Make sure GPUs are available: `python3 list-gpus.py`
 5. Train UNet model: `./train_script.sh`, tip: Use screen sessions to run folds in parallel. Stop when you see on progress.png in each fold folder that the model stops learning.
 6. Rename all best `checkpoint_best.pth` files to `checkpoint_final.pth` inside each fold folder (0-4)
@@ -34,4 +34,12 @@ Requirements:
 3. Make sure GPUs are available: `python3 list-gpus.py`
 4. In `train/` folder, you can train the segformer model: `python3 train-segformer-dice-viz.py` or `train-segformer-dice-ce-viz.py` (for dice loss only or mix of dice + cross entropy)
 5. In `inference/` folder, you can run trained models: `python3 inference-segformer.py`, generate some images with their originals: `python3 visualize_side_to_side.py` and verify the generated test submission.csv : `python3 verify.py`
+
+# Steps to train SAM2
+
+1. Clone their repo `git clone https://github.com/facebookresearch/segment-anything-2`
+2. Install requirements `cd segment-anything-2 && && pip install -e .`
+3. Download pretrained models: `chmod +x checkpoints/download_ckpts.sh && ./checkpoints/download_ckpts.sh`
+4. Prepare data for finetuning: in `sam2` run : `python3 preprocess.py`
+5. Move training script to cloned folder: `mv sam2/finetune.py segment-anything-2` and run it `cd segment-anything-2 && python3 finetune.py`
 
