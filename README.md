@@ -43,3 +43,7 @@ Requirements:
 4. Prepare data for finetuning: in `sam2` run : `python3 preprocess.py`
 5. Move training script to cloned folder: `mv sam2/finetune.py segment-anything-2` and run it `cd segment-anything-2 && python3 finetune.py`
 
+# Steps to train Swin-UNETR
+
+1. `python3 train-swinunetr.py`
+2. `python3 inference-swinunetr.py`
