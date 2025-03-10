@@ -1,1 +1,4 @@
 *.ckpt
+tb_logs/
+segformer/data/
+generated_dice_ce
