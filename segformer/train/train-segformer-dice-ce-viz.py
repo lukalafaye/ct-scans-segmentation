@@ -110,7 +110,6 @@ val_dataset = MyDataset(val_df_split)
 print("Train split contains: ", len(train_df_split.stack().unique()),
       " - Val split contains: ", len(val_df_split.stack().unique()))
 
-# Combined Loss: Cross Entropy + Average Dice Loss
 class CombinedLoss(torch.nn.Module):
     def __init__(self, smooth=1e-10):
         super(CombinedLoss, self).__init__()
@@ -126,18 +125,24 @@ class CombinedLoss(torch.nn.Module):
         target_indices = torch.argmax(targets, dim=1)  # shape: (B, 256,256)
         ce = self.ce_loss(inputs, target_indices)
 
-        inputs = inputs[:, 1:, :, :]
-        targets = targets[:, 1:, :, :]
+        # For dice loss, first convert logits to probabilities
+        probs = torch.softmax(inputs, dim=1)
 
-        B, C, H, W = inputs.shape
-        inputs = inputs.view(B, C, -1)   # shape: (B, C, H*W)
-        targets = targets.view(B, C, -1)
-        intersection = (inputs * targets).sum(dim=2)
-        union = inputs.sum(dim=2) + targets.sum(dim=2)
+        # Remove background channel (assumed channel 0)
+        probs = probs[:, 1:, :, :]      # shape: (B, MAX_ITEMS-1, 256,256)
+        targets = targets[:, 1:, :, :]    # shape: (B, MAX_ITEMS-1, 256,256)
+
+        B, C_dice, H, W = probs.shape
+        probs_flat = probs.view(B, C_dice, -1)   # shape: (B, C_dice, H*W)
+        targets_flat = targets.view(B, C_dice, -1)
+
+        intersection = (probs_flat * targets_flat).sum(dim=2)
+        union = probs_flat.sum(dim=2) + targets_flat.sum(dim=2)
         dice = (2. * intersection + self.smooth) / (union + self.smooth)
         dice_loss = 1 - dice.mean()  # average over channels and batch
         
-        return ce, dice_loss, 0.1*ce + 0.9*dice_loss
+        return ce, dice_loss, 0.2*ce + 0.8*dice_loss
+
 
 # LightningModule definition using the CombinedLoss
 class MyLightningModule(pl.LightningModule):
@@ -197,7 +202,7 @@ class MyLightningModule(pl.LightningModule):
 
 # Set up TensorBoard logger for online logging
 from pytorch_lightning.loggers import TensorBoardLogger
-logger = TensorBoardLogger("tb_logs", name="segformer-dice-ce")
+logger = TensorBoardLogger("tb_logs", name="no-json-segformer-dice-ce")
 
 # Device selection and DataLoader creation
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -321,14 +326,14 @@ class ValidationVisualizationCallback(pl.Callback):
         pl_module.train()  # set model back to train mode
 
 # Now, when you create your Trainer, add this callback:
-viz_callback = ValidationVisualizationCallback(val_dataloader=val_loader, output_dir="generated_dice_ce")
+viz_callback = ValidationVisualizationCallback(val_dataloader=val_loader, output_dir="no_json_generated_dice_ce")
 
 
 # Main training execution
 if TRAIN:
     model = MyLightningModule()
     checkpoint_callback = pl.callbacks.ModelCheckpoint(
-        dirpath="models/",
+        dirpath="no_json_models/",
         filename="best_model_dice_ce",
         save_top_k=1,
         monitor="val_loss",

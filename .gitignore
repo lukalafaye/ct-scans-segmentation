@@ -2,3 +2,5 @@
 tb_logs/
 segformer/data/
 generated_dice_ce
+no_json_generated_dice_ce
+no_json_generated_dice/

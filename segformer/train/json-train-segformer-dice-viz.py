@@ -177,7 +177,7 @@ class CombinedLoss(torch.nn.Module):
                 dice_losses.append(torch.tensor(0.0, device=inputs.device))
         dice_loss = torch.stack(dice_losses).mean()
         
-        combined_loss = 0.4 * ce + 0.6 * dice_loss
+        combined_loss = dice_loss
         return ce, dice_loss, combined_loss
 
 

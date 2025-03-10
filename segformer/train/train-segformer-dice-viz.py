@@ -305,11 +305,11 @@ class ValidationVisualizationCallback(pl.Callback):
 
 
 # Now, when you create your Trainer, add this callback:
-viz_callback = ValidationVisualizationCallback(val_dataloader=val_loader, output_dir="generated_dice")
+viz_callback = ValidationVisualizationCallback(val_dataloader=val_loader, output_dir="no_json_generated_dice")
 
 # Set up TensorBoard logger for online logging
 from pytorch_lightning.loggers import TensorBoardLogger
-logger = TensorBoardLogger("tb_logs", name="segformer-dice")
+logger = TensorBoardLogger("tb_logs", name="no-json-segformer-dice")
 
 # Device selection
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
