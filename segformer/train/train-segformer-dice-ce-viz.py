@@ -334,7 +334,7 @@ if TRAIN:
     model = MyLightningModule()
     checkpoint_callback = pl.callbacks.ModelCheckpoint(
         dirpath="no_json_models/",
-        filename="best_model_dice_ce",
+        filename="no_json_dice_ce_best_val.ckpt",
         save_top_k=1,
         monitor="val_loss",
         mode="min",

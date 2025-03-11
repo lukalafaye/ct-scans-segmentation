@@ -375,8 +375,8 @@ viz_callback = ValidationVisualizationCallback(val_dataloader=val_loader, output
 if TRAIN:
     model = MyLightningModule()
     checkpoint_callback = pl.callbacks.ModelCheckpoint(
-        dirpath="models/",
-        filename="json_best_model_dice_ce",
+        dirpath="json_models/",
+        filename="json_dice_ce_best_val",
         save_top_k=1,
         monitor="val_loss",
         mode="min",

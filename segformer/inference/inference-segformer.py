@@ -1,3 +1,4 @@
+import re
 import os
 import cv2
 import numpy as np
@@ -13,12 +14,13 @@ from transformers import SegformerForSemanticSegmentation, SegformerConfig
 DATA_FOLDER = "../data"  # no trailing /
 TRAIN_IMAGES_DIR = os.path.join(DATA_FOLDER, "train-images")
 TEST_IMAGES_DIR = os.path.join(DATA_FOLDER, "test-images")
-OUTPUT_TRAIN_DIR = "train-inference-segform-dice"
-OUTPUT_TEST_DIR = "test-inference-segformer-dice"
+OUTPUT_TRAIN_DIR = "no-json-train-inference-segformer-dice-ce"
+OUTPUT_TEST_DIR = "no-json-test-inference-segformer-dice-ce"
 os.makedirs(OUTPUT_TRAIN_DIR, exist_ok=True)
 os.makedirs(OUTPUT_TEST_DIR, exist_ok=True)
+SUBMISSION_FILE = "no-json-dice_ce.csv"
 
-MODEL_CHECKPOINT = "../train/models/no_json_dice_best_val.ckpt"
+MODEL_CHECKPOINT = "../train/no_json_models/no_json_dice_ce_best_val.ckpt"
 MAX_ITEMS = 55
 
 # ----------------------------
@@ -152,6 +154,12 @@ def visualize_and_save(image_path, pred_mask, gt_mask=None, output_folder=".", p
     save_path = os.path.join(output_folder, prefix + base_name)
     cv2.imwrite(save_path, final_vis)
 
+# Sort the columns by the numeric part of the filename
+def extract_number(filename):
+    """Extract numeric part from a filename, e.g. '186.png' -> 186."""
+    number_str = re.sub(r'\D', '', filename)
+    return int(number_str) if number_str else float('inf')
+
 # ----------------------------
 # Main Inference Script
 # ----------------------------
@@ -179,7 +187,7 @@ def main():
         # Get ground truth mask from CSV (flattened, reshape to 256x256)
         gt_flat = train_df.loc[file_name].values.astype(np.uint8)
         gt_mask = gt_flat.reshape(256, 256)
-        visualize_and_save(image_path, pred_mask, gt_mask=gt_mask, output_folder=os.path.join(DATA_FOLDER, OUTPUT_TRAIN_DIR), prefix="train_")
+        visualize_and_save(image_path, pred_mask, gt_mask=gt_mask, output_folder=OUTPUT_TRAIN_DIR, prefix="train_")
     
     # Inference on test images (no ground truth)
     predictions_dict = {}
@@ -188,7 +196,7 @@ def main():
     for file_name in test_files:
         image_path = os.path.join(TEST_IMAGES_DIR, file_name)
         pred_mask = run_inference(model, image_path, device)
-        visualize_and_save(image_path, pred_mask, gt_mask=None, output_folder=os.path.join(DATA_FOLDER, OUTPUT_TEST_DIR), prefix="test_")
+        visualize_and_save(image_path, pred_mask, gt_mask=None, output_folder=OUTPUT_TEST_DIR, prefix="test_")
         flat_pred = pred_mask.flatten()
         if num_pixels is None:
             num_pixels = flat_pred.shape[0]
@@ -199,9 +207,12 @@ def main():
     # Create submission CSV from test predictions
     row_names = [f"Pixel {i}" for i in range(num_pixels)]
     submission_df = pd.DataFrame(predictions_dict, index=row_names)
-    submission_csv = "submission.csv"
-    submission_df.to_csv(submission_csv, index=True)
-    print(f"Saved submission CSV to {submission_csv}")
+
+    sorted_columns = sorted(submission_df.columns, key=extract_number)
+    submission_df = submission_df[sorted_columns]
+
+    submission_df.to_csv(SUBMISSION_FILE, index=True)
+    print(f"Saved sorted submission CSV to {SUBMISSION_FILE}")
 
 if __name__ == "__main__":
     main()
