@@ -140,11 +140,10 @@ class CombinedLoss(torch.nn.Module):
         
         # --- Dice Loss ---
         # Convert logits to probabilities (this is the crucial fix)
-        probs = torch.softmax(inputs, dim=1)  # shape: (B, MAX_ITEMS, 256,256)
+        probs_dice = torch.softmax(inputs, dim=1)  # shape: (B, MAX_ITEMS, 256,256)
         
         # Remove background channel (assumed to be channel 0)
-        probs_dice = probs[:, 1:, :, :]      # shape: (B, MAX_ITEMS-1, 256,256)
-        targets_dice = targets[:, 1:, :, :]    # shape: (B, MAX_ITEMS-1, 256,256)
+        targets_dice = targets[:, :, :, :]    # shape: (B, MAX_ITEMS-1, 256,256)
         
         # Flatten spatial dimensions
         B, C_dice, H, W = probs_dice.shape

@@ -1,3 +1,6 @@
+no-json-test-inference-segformer-dice-ce
+no-json-train-inference-segformer-dice-ce
+
 *.ckpt
 tb_logs/
 segformer/data/
