@@ -321,7 +321,7 @@ if TRAIN:
 
     checkpoint_callback = pl.callbacks.ModelCheckpoint(
         dirpath="models/",
-        filename="best_model_no_shuffle",
+        filename="no_json_dice_best_val",
         save_top_k=1,
         monitor="val_loss",
         mode="min",

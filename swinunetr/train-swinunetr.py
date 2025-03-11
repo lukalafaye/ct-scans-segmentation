@@ -121,7 +121,7 @@ print("Validation split shape:", df_val.shape)
 train_dataset = SegmentationDataset(df_train, transform=transform)
 val_dataset = SegmentationDataset(df_val, transform=transform)
 
-train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=12, pin_memory=True)
+train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=os.cpu_count()-4, pin_memory=True)
 val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=4, pin_memory=True)
 
 # ----------------------------

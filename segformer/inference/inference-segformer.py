@@ -13,12 +13,12 @@ from transformers import SegformerForSemanticSegmentation, SegformerConfig
 DATA_FOLDER = "../data"  # no trailing /
 TRAIN_IMAGES_DIR = os.path.join(DATA_FOLDER, "train-images")
 TEST_IMAGES_DIR = os.path.join(DATA_FOLDER, "test-images")
-OUTPUT_TRAIN_DIR = "train-inference-segform-dice-ce"
-OUTPUT_TEST_DIR = "test-inference-segformer-dice-ce"
+OUTPUT_TRAIN_DIR = "train-inference-segform-dice"
+OUTPUT_TEST_DIR = "test-inference-segformer-dice"
 os.makedirs(OUTPUT_TRAIN_DIR, exist_ok=True)
 os.makedirs(OUTPUT_TEST_DIR, exist_ok=True)
 
-MODEL_CHECKPOINT = "models/best_model_dice_ce.ckpt"
+MODEL_CHECKPOINT = "../train/models/no_json_dice_best_val.ckpt"
 MAX_ITEMS = 55
 
 # ----------------------------
