@@ -161,7 +161,7 @@ class CombinedLoss(torch.nn.Module):
         target_sums = targets_flat.sum(dim=2)  # (B, C_dice)
         for i in range(B):
             for j in range(C_dice):
-                organ_label = j + 1  # channels 0...C_dice-1 correspond to labels 1...MAX_ITEMS-1
+                organ_label = j  # channels 0...C_dice-1 correspond to labels 1...MAX_ITEMS-1
                 if (organ_label in expected_labels[i]) and (target_sums[i, j] == 0):
                     mask[i, j] = 0.0
         
@@ -238,7 +238,7 @@ class MyLightningModule(pl.LightningModule):
 
 # Set up TensorBoard logger for online logging
 from pytorch_lightning.loggers import TensorBoardLogger
-logger = TensorBoardLogger("tb_logs", name="json-segformer-dice-ce")
+logger = TensorBoardLogger("tb_logs", name="json-segformer-dice-ce-all")
 
 # Device selection and DataLoader creation
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")

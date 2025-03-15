@@ -13,3 +13,5 @@ transformers
 pathlib
 iterative-stratification==0.1.9
 tensorboard
+segmentation_models_pytorch
+timm
